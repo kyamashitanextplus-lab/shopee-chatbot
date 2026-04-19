@@ -316,6 +316,43 @@ with col1:
 
     generate_btn = st.button("✨ 返信例を生成", type="primary", use_container_width=True)
 
+def show_reply_and_translation(reply, translation, inquiry_text, client):
+    """返信例と編集可能な日本語訳を表示する共通関数"""
+    display_reply = st.session_state.get("edited_reply", reply)
+    st.code(display_reply, language=None)
+    st.caption("↑ 右上のアイコンでコピーできます")
+
+    with st.expander("日本語訳（編集すると返信例に反映）", expanded=True):
+        edited_ja = st.text_area(
+            "日本語訳を編集",
+            value=st.session_state.get("edited_translation", translation),
+            height=120,
+            key="ja_edit_area",
+            label_visibility="collapsed"
+        )
+        if st.button("✏️ この内容で返信例を更新", use_container_width=True):
+            with st.spinner("返信例を更新中..."):
+                try:
+                    lang_detect = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=20,
+                        messages=[{"role": "user", "content": f"What language is this text written in? Reply with only the language name in English (e.g. Thai, English, Chinese):\n\n{inquiry_text}"}]
+                    )
+                    customer_lang = lang_detect.content[0].text.strip()
+                    retranslate_prompt = f"Translate the following Japanese customer support reply into {customer_lang}. Keep the same tone and length. Output ONLY the translation:\n\n{edited_ja}"
+                    new_reply_msg = client.messages.create(
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=500,
+                        messages=[{"role": "user", "content": retranslate_prompt}]
+                    )
+                    st.session_state["edited_reply"] = new_reply_msg.content[0].text
+                    st.session_state["edited_translation"] = edited_ja
+                    st.session_state["show_reply"] = reply
+                    st.session_state["show_translation"] = translation
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"更新エラー: {e}")
+
 with col2:
     st.subheader("💬 返信例")
     st.caption("この返信例をコピーして、そのままお客様に送ってください")
@@ -329,6 +366,16 @@ with col2:
             del st.session_state["template_reply"]
             del st.session_state["template_text"]
             st.rerun()
+
+    # 更新ボタン後のrerun時に返信を再表示
+    elif not generate_btn and "show_reply" in st.session_state:
+        _client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+        show_reply_and_translation(
+            st.session_state["show_reply"],
+            st.session_state["show_translation"],
+            st.session_state.get("current_inquiry", ""),
+            _client
+        )
 
     elif generate_btn and inquiry_text.strip():
         # テンプレ・編集済み内容をクリア
@@ -438,11 +485,10 @@ Write ONLY the shop's reply. No labels, no explanation."""
                 banned    = ["cancel", "キャンセル"]
                 has_banned = any(w.lower() in reply.lower() for w in banned)
 
-                # セッションに返信と言語を保存
-                st.session_state["current_reply"] = reply
+                # セッションに保存
                 st.session_state["current_inquiry"] = inquiry_text
 
-                # 日本語訳を生成してセッションに保存
+                # 日本語訳を生成
                 if f"translation_{hash(reply)}" not in st.session_state:
                     with st.spinner("日本語訳を生成中..."):
                         try:
@@ -457,44 +503,10 @@ Write ONLY the shop's reply. No labels, no explanation."""
                             st.session_state[f"translation_{hash(reply)}"] = ""
 
                 translation = st.session_state.get(f"translation_{hash(reply)}", "")
+                st.session_state["show_reply"] = reply
+                st.session_state["show_translation"] = translation
 
-                # 返信表示（編集後の返信があればそちらを表示）
-                display_reply = st.session_state.get("edited_reply", reply)
-                st.code(display_reply, language=None)
-                st.caption("↑ 右上のアイコンでコピーできます")
-
-                # 日本語訳（編集可能）
-                with st.expander("日本語訳（編集すると返信例に反映）", expanded=True):
-                    edited_ja = st.text_area(
-                        "日本語訳を編集",
-                        value=st.session_state.get("edited_translation", translation),
-                        height=120,
-                        key="ja_edit_area",
-                        label_visibility="collapsed"
-                    )
-                    if st.button("✏️ この内容で返信例を更新", use_container_width=True):
-                        # 編集した日本語訳をお客様の言語に再翻訳
-                        with st.spinner("返信例を更新中..."):
-                            try:
-                                # お客様の言語を検出
-                                lang_detect = client.messages.create(
-                                    model="claude-haiku-4-5-20251001",
-                                    max_tokens=20,
-                                    messages=[{"role": "user", "content": f"What language is this text written in? Reply with only the language name in English (e.g. Thai, English, Chinese):\n\n{inquiry_text}"}]
-                                )
-                                customer_lang = lang_detect.content[0].text.strip()
-
-                                retranslate_prompt = f"Translate the following Japanese customer support reply into {customer_lang}. Keep the same tone and length. Output ONLY the translation:\n\n{edited_ja}"
-                                new_reply_msg = client.messages.create(
-                                    model="claude-haiku-4-5-20251001",
-                                    max_tokens=500,
-                                    messages=[{"role": "user", "content": retranslate_prompt}]
-                                )
-                                st.session_state["edited_reply"] = new_reply_msg.content[0].text
-                                st.session_state["edited_translation"] = edited_ja
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"更新エラー: {e}")
+                show_reply_and_translation(reply, translation, inquiry_text, client)
 
                 if has_banned:
                     st.error("⚠️ 禁止ワード（cancel / キャンセル）が含まれています！送信前に修正してください。")

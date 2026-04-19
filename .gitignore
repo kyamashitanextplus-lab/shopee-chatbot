@@ -1,0 +1,7 @@
+venv/
+.env
+credentials.json
+inquiry_history.json
+__pycache__/
+*.pyc
+.claude/

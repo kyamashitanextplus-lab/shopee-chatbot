@@ -19,8 +19,8 @@ load_dotenv()
 CLAUDE_API_KEY     = st.secrets.get("CLAUDE_API_KEY",     os.getenv("CLAUDE_API_KEY", ""))
 PERPLEXITY_API_KEY = st.secrets.get("PERPLEXITY_API_KEY", os.getenv("PERPLEXITY_API_KEY", ""))
 
-TRANSLATION_MODEL = "claude-sonnet-4-5-20251001"   # 翻訳専用（精度重視）
-REPLY_MODEL       = "claude-haiku-4-5-20251001"    # 返信生成・OCR（速度重視）
+MODEL = "claude-sonnet-4-5-20251001"
+TRANSLATION_MODEL = MODEL  # 後方互換
 
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "inquiry_history.json")
 SIMILAR_THRESHOLD = 0.35   # この割合以上の単語が一致したら「似た質問」と判定
@@ -250,7 +250,7 @@ with col1:
                 try:
                     _c = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
                     ocr_msg = _c.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model=MODEL,
                         max_tokens=800,
                         messages=[{
                             "role": "user",
@@ -337,7 +337,7 @@ def show_reply_and_translation(reply, translation, inquiry_text, client):
             with st.spinner("返信例を更新中..."):
                 try:
                     lang_detect = client.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model=MODEL,
                         max_tokens=20,
                         messages=[{"role": "user", "content": f"What language is this text written in? Reply with only the language name in English (e.g. Thai, English, Chinese):\n\n{inquiry_text}"}]
                     )
@@ -481,7 +481,7 @@ Write ONLY the shop's reply. No labels, no explanation."""
             try:
                 client  = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
                 message = client.messages.create(
-                    model="claude-haiku-4-5-20251001",
+                    model=MODEL,
                     max_tokens=1000,
                     messages=[{"role": "user", "content": prompt}]
                 )

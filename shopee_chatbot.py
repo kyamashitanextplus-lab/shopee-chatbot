@@ -19,6 +19,9 @@ load_dotenv()
 CLAUDE_API_KEY     = st.secrets.get("CLAUDE_API_KEY",     os.getenv("CLAUDE_API_KEY", ""))
 PERPLEXITY_API_KEY = st.secrets.get("PERPLEXITY_API_KEY", os.getenv("PERPLEXITY_API_KEY", ""))
 
+TRANSLATION_MODEL = "claude-sonnet-4-5-20251001"   # 翻訳専用（精度重視）
+REPLY_MODEL       = "claude-haiku-4-5-20251001"    # 返信生成・OCR（速度重視）
+
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "inquiry_history.json")
 SIMILAR_THRESHOLD = 0.35   # この割合以上の単語が一致したら「似た質問」と判定
 TEMPLATE_MIN_COUNT = 2     # 何回以上同じパターンが来たらテンプレ候補として表示するか
@@ -303,7 +306,7 @@ with col1:
                 try:
                     _c = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
                     tl = _c.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model=TRANSLATION_MODEL,
                         max_tokens=600,
                         messages=[{"role": "user", "content": f"Translate the following Shopee customer chat into natural Japanese. Use proper e-commerce terms: 'original'→'正規品', 'cancel'→'注文キャンセル', 'tracking'→'追跡番号', 'voucher'→'バウチャー', 'coupon'→'クーポン', 'discount'→'割引', 'checkout'→'購入手続き', 'order'→'注文', 'refund'→'返金', 'return'→'返品'. Keep speaker labels if present. Output ONLY the translation:\n\n{inquiry_text}"}]
                     )
@@ -341,7 +344,7 @@ def show_reply_and_translation(reply, translation, inquiry_text, client):
                     customer_lang = lang_detect.content[0].text.strip()
                     retranslate_prompt = f"Translate the following Japanese customer support reply into {customer_lang}. Keep the same tone and length. If translating to Thai: use ค่ะ (female polite) consistently, and use correct e-commerce terms: バウチャー→วาวเชอร์ or คูปองส่วนลด (NEVER บัตรเดบิต/บัตรเงินสด), 割引→ส่วนลด, 注文→คำสั่งซื้อ, 返金→คืนเงิน. Output ONLY the translation:\n\n{edited_ja}"
                     new_reply_msg = client.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model=TRANSLATION_MODEL,
                         max_tokens=500,
                         messages=[{"role": "user", "content": retranslate_prompt}]
                     )
@@ -497,7 +500,7 @@ Write ONLY the shop's reply. No labels, no explanation."""
                         try:
                             translate_prompt = f"Translate the following customer support reply into natural Japanese. Use correct e-commerce terms: voucher→バウチャー (NOT キャッシュカード/デビットカード), coupon→クーポン, discount→割引, checkout→購入手続き, order→注文, refund→返金, return→返品, tracking→追跡番号. Output ONLY the translation, no labels.\n\n{reply}"
                             trans_msg = client.messages.create(
-                                model="claude-haiku-4-5-20251001",
+                                model=TRANSLATION_MODEL,
                                 max_tokens=1000,
                                 messages=[{"role": "user", "content": translate_prompt}]
                             )

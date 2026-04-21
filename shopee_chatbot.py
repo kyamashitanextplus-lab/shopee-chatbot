@@ -305,7 +305,7 @@ with col1:
                     tl = _c.messages.create(
                         model="claude-haiku-4-5-20251001",
                         max_tokens=600,
-                        messages=[{"role": "user", "content": f"Translate the following Shopee customer chat into natural Japanese. Use proper business context terms (e.g. 'original' → '正規品', 'cancel' → '注文キャンセル', 'tracking' → '追跡番号'). Keep speaker labels if present. Output ONLY the translation:\n\n{inquiry_text}"}]
+                        messages=[{"role": "user", "content": f"Translate the following Shopee customer chat into natural Japanese. Use proper e-commerce terms: 'original'→'正規品', 'cancel'→'注文キャンセル', 'tracking'→'追跡番号', 'voucher'→'バウチャー', 'coupon'→'クーポン', 'discount'→'割引', 'checkout'→'購入手続き', 'order'→'注文', 'refund'→'返金', 'return'→'返品'. Keep speaker labels if present. Output ONLY the translation:\n\n{inquiry_text}"}]
                     )
                     st.session_state[cached_key] = tl.content[0].text
                 except Exception:
@@ -339,7 +339,7 @@ def show_reply_and_translation(reply, translation, inquiry_text, client):
                         messages=[{"role": "user", "content": f"What language is this text written in? Reply with only the language name in English (e.g. Thai, English, Chinese):\n\n{inquiry_text}"}]
                     )
                     customer_lang = lang_detect.content[0].text.strip()
-                    retranslate_prompt = f"Translate the following Japanese customer support reply into {customer_lang}. Keep the same tone and length. Output ONLY the translation:\n\n{edited_ja}"
+                    retranslate_prompt = f"Translate the following Japanese customer support reply into {customer_lang}. Keep the same tone and length. If translating to Thai: use ค่ะ (female polite) consistently, and use correct e-commerce terms: バウチャー→วาวเชอร์ or คูปองส่วนลด (NEVER บัตรเดบิต/บัตรเงินสด), 割引→ส่วนลด, 注文→คำสั่งซื้อ, 返金→คืนเงิน. Output ONLY the translation:\n\n{edited_ja}"
                     new_reply_msg = client.messages.create(
                         model="claude-haiku-4-5-20251001",
                         max_tokens=500,
@@ -442,8 +442,9 @@ Shop reply: "Are you connecting it to a PC?"
 1. LANGUAGE: You MUST reply in the EXACT same language as the customer's message. This is the most important rule.
    English→English / ภาษาไทย→ภาษาไทย / 中文→繁體中文 / Bahasa→Bahasa Melayu / Português→Português / 日本語→日本語
    If the customer writes in Thai, your entire reply must be in Thai. Never switch languages.
-   THAI RULE: Use ค่ะ (female polite) consistently throughout. NEVER mix ค่ะ and ครับ in the same reply.
-   THAI RULE: Use confident expressions — มีสต็อกอยู่ not คงสต็อก. Avoid คง (probably) — be direct.
+   IF REPLYING IN THAI: Use ค่ะ (female polite) consistently. NEVER mix ค่ะ and ครับ in the same reply.
+   IF REPLYING IN THAI: Use confident expressions — มีสต็อกอยู่ not คงสต็อก. Avoid คง (probably) — be direct.
+   IF REPLYING IN THAI: E-commerce terms: voucher=วาวเชอร์ or คูปองส่วนลด (NEVER บัตรเดบิต/บัตรเครดิต/บัตรเงินสด), discount=ส่วนลด, checkout=ชำระเงิน, order=คำสั่งซื้อ, refund=คืนเงิน, tracking=เลขพัสดุ
 
 2. TONE & LENGTH: Short, direct, friendly. No emojis. No filler.
    - Start with a brief greeting like "Hi!" or "Hello!" is fine
@@ -494,7 +495,7 @@ Write ONLY the shop's reply. No labels, no explanation."""
                 if f"translation_{hash(reply)}" not in st.session_state:
                     with st.spinner("日本語訳を生成中..."):
                         try:
-                            translate_prompt = f"Translate the following customer support reply into natural Japanese. Output ONLY the translation, no labels.\n\n{reply}"
+                            translate_prompt = f"Translate the following customer support reply into natural Japanese. Use correct e-commerce terms: voucher→バウチャー (NOT キャッシュカード/デビットカード), coupon→クーポン, discount→割引, checkout→購入手続き, order→注文, refund→返金, return→返品, tracking→追跡番号. Output ONLY the translation, no labels.\n\n{reply}"
                             trans_msg = client.messages.create(
                                 model="claude-haiku-4-5-20251001",
                                 max_tokens=1000,

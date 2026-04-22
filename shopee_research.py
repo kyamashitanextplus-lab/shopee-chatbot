@@ -28,7 +28,7 @@ load_dotenv()
 # ========== 設定 ==========
 PERPLEXITY_API_KEY    = os.getenv("PERPLEXITY_API_KEY")
 CLAUDE_API_KEY        = os.getenv("CLAUDE_API_KEY")
-CLAUDE_MODEL          = "claude-sonnet-4-5-20251001"
+CLAUDE_MODEL          = "claude-sonnet-4-5"
 GOOGLE_CREDS_PATH     = os.getenv("GOOGLE_CREDENTIALS_PATH")
 SPREADSHEET_ID        = os.getenv("SPREADSHEET_ID")
 SHEET_NAME            = os.getenv("SHEET_NAME", "AIリサーチ")

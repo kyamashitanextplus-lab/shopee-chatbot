@@ -19,7 +19,7 @@ load_dotenv()
 CLAUDE_API_KEY     = st.secrets.get("CLAUDE_API_KEY",     os.getenv("CLAUDE_API_KEY", ""))
 PERPLEXITY_API_KEY = st.secrets.get("PERPLEXITY_API_KEY", os.getenv("PERPLEXITY_API_KEY", ""))
 
-MODEL = "claude-sonnet-4-5-20251001"
+MODEL = "claude-sonnet-4-5"
 TRANSLATION_MODEL = MODEL  # 後方互換
 
 HISTORY_FILE = os.path.join(os.path.dirname(__file__), "inquiry_history.json")

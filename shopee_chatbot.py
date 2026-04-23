@@ -406,11 +406,12 @@ with col2:
                         st.divider()
 
         # ===== 商品スペック質問かどうか判定 =====
+        # 商品名が入力されていれば常にPerplexityで調査（キーワード不問）
         spec_question    = is_spec_question(inquiry_text)
         product_details  = ""
         product_sources  = []
 
-        if spec_question and product_name.strip():
+        if product_name.strip():
             with st.spinner(f"Perplexityで「{product_name}」のスペックを調査中..."):
                 product_details, product_sources = search_product_details(product_name, inquiry_text)
 
@@ -532,7 +533,7 @@ Write ONLY the shop's reply. No labels, no explanation."""
                                 st.markdown(f"{i}. {url}")
                     st.success("✅ Perplexityの実データを使って返信を生成しました")
                 elif spec_question and not product_name.strip():
-                    st.warning("商品スペックの質問のようです。左の「販売中の商品名」を入力すると、Perplexityが自動でスペックを調べて返信に反映します。")
+                    st.warning("スペックに関する質問のようです。左の「商品名またはASINコード」を入力するとPerplexityが自動で調査して返信に反映します。")
 
                 # カテゴリバッジ
                 st.info(f"問い合わせ種別：{category}")

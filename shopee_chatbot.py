@@ -90,7 +90,8 @@ def add_to_history(inquiry: str, reply: str, category: str):
 
 # ========== Perplexity 商品詳細調査 ==========
 
-def search_product_details(product_name: str, question: str) -> str:
+def search_product_details(product_name: str, question: str) -> tuple:
+    """スペック情報と情報源URLのリストを返す (content, [urls])"""
     prompt = f"""以下の日本製商品について、お客様の質問に答えるために必要なスペック情報を調べてください。
 
 商品名: {product_name}
@@ -124,9 +125,12 @@ def search_product_details(product_name: str, question: str) -> str:
             timeout=30
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"]
+        data    = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        sources = data.get("citations", [])   # Perplexityが返す情報源URLリスト
+        return content, sources
     except Exception as e:
-        return f"（Perplexity検索エラー: {e}）"
+        return f"（Perplexity検索エラー: {e}）", []
 
 
 def is_spec_question(text: str) -> bool:
@@ -402,12 +406,13 @@ with col2:
                         st.divider()
 
         # ===== 商品スペック質問かどうか判定 =====
-        spec_question   = is_spec_question(inquiry_text)
-        product_details = ""
+        spec_question    = is_spec_question(inquiry_text)
+        product_details  = ""
+        product_sources  = []
 
         if spec_question and product_name.strip():
             with st.spinner(f"Perplexityで「{product_name}」のスペックを調査中..."):
-                product_details = search_product_details(product_name, inquiry_text)
+                product_details, product_sources = search_product_details(product_name, inquiry_text)
 
         # ===== Claudeへの返信生成プロンプト =====
         spec_section = ""
@@ -518,8 +523,13 @@ Write ONLY the shop's reply. No labels, no explanation."""
                     st.error("⚠️ 禁止ワード（cancel / キャンセル）が含まれています！送信前に修正してください。")
 
                 if product_details:
-                    with st.expander("Perplexityが調査したスペック情報（参考）"):
+                    with st.expander("🔍 Perplexityが調査したスペック情報（参考）"):
                         st.markdown(product_details)
+                        if product_sources:
+                            st.divider()
+                            st.caption("📎 情報源")
+                            for i, url in enumerate(product_sources, 1):
+                                st.markdown(f"{i}. {url}")
                     st.success("✅ Perplexityの実データを使って返信を生成しました")
                 elif spec_question and not product_name.strip():
                     st.warning("商品スペックの質問のようです。左の「販売中の商品名」を入力すると、Perplexityが自動でスペックを調べて返信に反映します。")

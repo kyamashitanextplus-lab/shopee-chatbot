@@ -22,9 +22,51 @@ PERPLEXITY_API_KEY = st.secrets.get("PERPLEXITY_API_KEY", os.getenv("PERPLEXITY_
 MODEL = "claude-sonnet-4-5"
 TRANSLATION_MODEL = MODEL  # 後方互換
 
-HISTORY_FILE = os.path.join(os.path.dirname(__file__), "inquiry_history.json")
-SIMILAR_THRESHOLD = 0.35   # この割合以上の単語が一致したら「似た質問」と判定
-TEMPLATE_MIN_COUNT = 2     # 何回以上同じパターンが来たらテンプレ候補として表示するか
+HISTORY_FILE        = os.path.join(os.path.dirname(__file__), "inquiry_history.json")
+LEARNED_FILE        = os.path.join(os.path.dirname(__file__), "learned_examples.json")
+SIMILAR_THRESHOLD   = 0.35
+TEMPLATE_MIN_COUNT  = 2
+LEARNED_INJECT_MAX  = 3    # プロンプトに注入する学習済み例の最大数
+
+
+# ========== 学習済み返信例の管理 ==========
+
+def load_learned() -> list:
+    if not os.path.exists(LEARNED_FILE):
+        return []
+    try:
+        with open(LEARNED_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+def save_learned(examples: list):
+    with open(LEARNED_FILE, "w", encoding="utf-8") as f:
+        json.dump(examples, f, ensure_ascii=False, indent=2)
+
+def add_learned_example(inquiry: str, reply: str):
+    """承認済み返信例を保存（類似があれば上書き）"""
+    examples = load_learned()
+    for ex in examples:
+        if similarity(inquiry, ex["inquiry"]) >= 0.8:
+            ex["reply"] = reply
+            ex["updated"] = datetime.now().strftime("%Y-%m-%d")
+            save_learned(examples)
+            return
+    examples.append({
+        "inquiry": inquiry,
+        "reply": reply,
+        "date": datetime.now().strftime("%Y-%m-%d"),
+    })
+    save_learned(examples)
+
+def get_learned_examples(inquiry: str) -> list:
+    """類似度が高い学習済み返信例を返す"""
+    examples = load_learned()
+    scored = [(similarity(inquiry, ex["inquiry"]), ex) for ex in examples]
+    scored = [(s, ex) for s, ex in scored if s >= SIMILAR_THRESHOLD]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [ex for _, ex in scored[:LEARNED_INJECT_MAX]]
 
 
 # ========== 履歴管理 ==========
@@ -329,6 +371,16 @@ def show_reply_and_translation(reply, translation, inquiry_text, client):
     st.code(display_reply, language=None)
     st.caption("↑ 右上のアイコンでコピーできます")
 
+    # 採用ボタン（学習）
+    col_adopt, col_clear = st.columns([3, 1])
+    with col_adopt:
+        if st.button("✅ この返信を採用して学習", use_container_width=True, type="primary"):
+            add_learned_example(inquiry_text, display_reply)
+            st.success("✅ 学習しました！次回から似た質問に自動適用されます")
+    with col_clear:
+        if st.button("❌ スキップ", use_container_width=True):
+            pass  # 何もしない
+
     with st.expander("日本語訳（編集すると返信例に反映）", expanded=True):
         edited_ja = st.text_area(
             "日本語訳を編集",
@@ -423,9 +475,17 @@ with col2:
 {product_details}
 ===
 """
+        # ===== 学習済み返信例をプロンプトに注入 =====
+        learned = get_learned_examples(inquiry_text)
+        learned_section = ""
+        if learned:
+            learned_section = "\n=== APPROVED REPLIES (highest priority — owner approved these exact replies) ===\n"
+            for i, ex in enumerate(learned, 1):
+                learned_section += f'\nApproved Example {i}:\nCustomer: "{ex["inquiry"]}"\nShop reply: "{ex["reply"]}"\n'
+            learned_section += "===\n"
 
         prompt = f"""You are a customer support assistant for a Japanese product seller on Shopee. Your job is to write replies that sound exactly like the shop owner's real replies shown below.
-{spec_section}
+{spec_section}{learned_section}
 === REPLY STYLE (learn from these real examples) ===
 
 Example 1 — Authenticity question:

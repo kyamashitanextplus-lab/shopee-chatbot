@@ -44,20 +44,25 @@ def save_learned(examples: list):
     with open(LEARNED_FILE, "w", encoding="utf-8") as f:
         json.dump(examples, f, ensure_ascii=False, indent=2)
 
-def add_learned_example(inquiry: str, reply: str):
+def add_learned_example(inquiry: str, reply: str, reply_ja: str = ""):
     """承認済み返信例を保存（類似があれば上書き）"""
     examples = load_learned()
     for ex in examples:
         if similarity(inquiry, ex["inquiry"]) >= 0.8:
             ex["reply"] = reply
+            if reply_ja:
+                ex["reply_ja"] = reply_ja
             ex["updated"] = datetime.now().strftime("%Y-%m-%d")
             save_learned(examples)
             return
-    examples.append({
+    entry = {
         "inquiry": inquiry,
         "reply": reply,
         "date": datetime.now().strftime("%Y-%m-%d"),
-    })
+    }
+    if reply_ja:
+        entry["reply_ja"] = reply_ja
+    examples.append(entry)
     save_learned(examples)
 
 def get_learned_examples(inquiry: str) -> list:
@@ -375,7 +380,9 @@ def show_reply_and_translation(reply, translation, inquiry_text, client):
     col_adopt, col_clear = st.columns([3, 1])
     with col_adopt:
         if st.button("✅ この返信を採用して学習", use_container_width=True, type="primary"):
-            add_learned_example(inquiry_text, display_reply)
+            # 編集済みの日本語訳があればそれも保存
+            current_ja = st.session_state.get("ja_edit_area", translation)
+            add_learned_example(inquiry_text, display_reply, reply_ja=current_ja)
             st.success("✅ 学習しました！次回から似た質問に自動適用されます")
     with col_clear:
         if st.button("❌ スキップ", use_container_width=True):
@@ -560,19 +567,28 @@ Write ONLY the shop's reply. No labels, no explanation."""
                 # セッションに保存
                 st.session_state["current_inquiry"] = inquiry_text
 
-                # 日本語訳を生成
+                # 日本語訳を生成（学習済みの日本語訳があればそれを優先使用）
                 if f"translation_{hash(reply)}" not in st.session_state:
-                    with st.spinner("日本語訳を生成中..."):
-                        try:
-                            translate_prompt = f"Translate the following customer support reply into natural Japanese. Use correct e-commerce terms: voucher→バウチャー (NOT キャッシュカード/デビットカード), coupon→クーポン, discount→割引, checkout→購入手続き, order→注文, refund→返金, return→返品, tracking→追跡番号. Output ONLY the translation, no labels.\n\n{reply}"
-                            trans_msg = client.messages.create(
-                                model=TRANSLATION_MODEL,
-                                max_tokens=1000,
-                                messages=[{"role": "user", "content": translate_prompt}]
-                            )
-                            st.session_state[f"translation_{hash(reply)}"] = trans_msg.content[0].text
-                        except Exception:
-                            st.session_state[f"translation_{hash(reply)}"] = ""
+                    # 学習済み例に日本語訳があれば翻訳をスキップ
+                    learned_ja = next(
+                        (ex.get("reply_ja", "") for ex in get_learned_examples(inquiry_text)
+                         if ex.get("reply_ja")),
+                        ""
+                    )
+                    if learned_ja:
+                        st.session_state[f"translation_{hash(reply)}"] = learned_ja
+                    else:
+                        with st.spinner("日本語訳を生成中..."):
+                            try:
+                                translate_prompt = f"Translate the following customer support reply into natural Japanese. Use correct e-commerce terms: voucher→バウチャー (NOT キャッシュカード/デビットカード), coupon→クーポン, discount→割引, checkout→購入手続き, order→注文, refund→返金, return→返品, tracking→追跡番号. Output ONLY the translation, no labels.\n\n{reply}"
+                                trans_msg = client.messages.create(
+                                    model=TRANSLATION_MODEL,
+                                    max_tokens=1000,
+                                    messages=[{"role": "user", "content": translate_prompt}]
+                                )
+                                st.session_state[f"translation_{hash(reply)}"] = trans_msg.content[0].text
+                            except Exception:
+                                st.session_state[f"translation_{hash(reply)}"] = ""
 
                 translation = st.session_state.get(f"translation_{hash(reply)}", "")
                 st.session_state["show_reply"] = reply

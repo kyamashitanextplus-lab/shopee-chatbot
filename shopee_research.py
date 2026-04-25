@@ -122,6 +122,29 @@ USED_ITEM_NG_KEYWORDS = [
     "中古品", "中古", "used", "訳あり", "アウトレット品",
 ]
 
+FOREIGN_BRAND_KEYWORDS = [
+    # 韓国コスメ
+    "peripera", "ペリペラ", "innisfree", "イニスフリー", "cosrx", "laneige", "ラネージュ",
+    "etude house", "エチュードハウス", "rom&nd", "romand", "missha", "ミシャ",
+    "3ce", "too cool for school", "the face shop", "nature republic",
+    "holika holika", "tony moly", "tonico moly", "clio", "clubclio",
+    "some by mi", "dr.jart", "mediheal", "anua", "beauty of joseon",
+    # 欧米ブランド（家電・雑貨）
+    "ninja", "ニンジャ", "dyson", "ダイソン", "philips", "フィリップス",
+    "braun", "ブラウン", "de'longhi", "デロンギ", "nespresso", "ネスプレッソ",
+    "instant pot", "kitchenaid", "cuisinart",
+    # 欧米コスメ
+    "l'oreal", "loreal", "ロレアル", "maybelline", "メイベリン", "nyx", "revlon",
+    "covergirl", "e.l.f", "elf cosmetics", "wet n wild",
+    "charlotte tilbury", "urban decay", "too faced", "benefit",
+    "mac cosmetics", "clinique", "estee lauder", "lancome",
+    # 欧米ファッション（BRAND_NGに加え）
+    "zara", "h&m", "gap", "forever 21",
+    # 中国ブランド
+    "xiaomi", "シャオミ", "huawei", "ファーウェイ", "realme", "oppo", "vivo",
+    "anker", "アンカー", "baseus", "ベースエウス", "ugreen",
+]
+
 WEAPON_NG_KEYWORDS = [
     "銃", "ガン", "gun", "pistol", "rifle", "weapon", "武器",
     "ピストル", "ライフル", "マシンガン", "machine gun",
@@ -148,12 +171,13 @@ def check_keywords(product, keywords):
     ]).lower()
     return any(kw.lower() in text for kw in keywords)
 
-def is_cosmetic(p):    return check_keywords(p, COSMETIC_KEYWORDS)
-def is_air_ng(p):      return check_keywords(p, AIR_NG_KEYWORDS)
-def is_brand_ng(p):    return check_keywords(p, BRAND_NG_KEYWORDS)
-def is_weapon(p):      return check_keywords(p, WEAPON_NG_KEYWORDS)
-def is_stock_ng(p):    return check_keywords(p, STOCK_NG_KEYWORDS)
-def is_used_item(p):   return check_keywords(p, USED_ITEM_NG_KEYWORDS)
+def is_cosmetic(p):       return check_keywords(p, COSMETIC_KEYWORDS)
+def is_air_ng(p):         return check_keywords(p, AIR_NG_KEYWORDS)
+def is_brand_ng(p):       return check_keywords(p, BRAND_NG_KEYWORDS)
+def is_weapon(p):         return check_keywords(p, WEAPON_NG_KEYWORDS)
+def is_stock_ng(p):       return check_keywords(p, STOCK_NG_KEYWORDS)
+def is_used_item(p):      return check_keywords(p, USED_ITEM_NG_KEYWORDS)
+def is_foreign_brand(p):  return check_keywords(p, FOREIGN_BRAND_KEYWORDS)
 
 def is_large_item(p):
     # name_ja と category のみチェック（notes/search_keywordの誤検知防止）
@@ -241,7 +265,11 @@ def research_products(category, count):
 - 「有線イヤホン」「シールセット」などカテゴリ名だけの曖昧な商品名は禁止
 - **架空の商品・推測で作った型番は絶対に含めないこと**
 - 実際にAmazon.co.jpまたは楽天市場で販売されていることを確認できた商品のみ
-- 日本ブランドまたは日本で広く流通している商品のみ（IKEA・H&M等の外国専用ブランドは除外）
+- **日本ブランド・日本メーカーの商品のみ（最重要）**
+- 韓国ブランド（peripera・innisfree・COSRX・Laneige・Etude House・rom&nd等）は絶対に除外
+- 欧米ブランド（Ninja・Dyson・Philips・L'Oréal・Maybelline・NYX等）は絶対に除外
+- 中国ブランドは絶対に除外
+- 日本で製造または日本ブランドが企画・販売している商品のみ対象
 - 大型家具・ベッド・ソファ・ドア・大型家電は除外（国際配送不可）
 
 【選定基準】
@@ -281,32 +309,77 @@ def research_products(category, count):
 }}
 """
 
-    headers = {
+    perplexity_headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
         "Content-Type": "application/json"
     }
-    payload = {
+    perplexity_payload = {
         "model": "sonar-deep-research",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 4000
+        "max_tokens": 8000
     }
 
     for attempt in range(3):
-        resp = requests.post("https://api.perplexity.ai/chat/completions", headers=headers, json=payload)
+        resp = requests.post("https://api.perplexity.ai/chat/completions", headers=perplexity_headers, json=perplexity_payload)
         resp.raise_for_status()
 
-        content = resp.json()["choices"][0]["message"]["content"]
-        match = re.search(r'\{[\s\S]*\}', content)
-        if match:
-            try:
-                parsed = json.loads(match.group())
-                products = parsed.get("products", [])
-                if len(products) >= 5:
-                    for p in products:
-                        p["research_type"] = category
-                    return products
-            except json.JSONDecodeError:
-                pass
+        report_content = resp.json()["choices"][0]["message"]["content"]
+
+        # sonar-deep-researchはレポート形式で返すため、ClaudeでJSON化する
+        print(f"  Perplexityレポート取得済み（{len(report_content)}文字）、ClaudeでJSON化中...")
+
+        claude_client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+        json_prompt = f"""以下はShopee販売用の商品リサーチレポートです。
+このレポートから商品情報を抽出し、必ず以下のJSON形式のみで出力してください。
+JSONのみ出力し、説明文・前置き・コードブロック記号は一切含めないこと。
+
+出力形式:
+{{
+  "products": [
+    {{
+      "name_ja": "商品名（ブランド名＋商品名＋型番必須）",
+      "category": "カテゴリ",
+      "source_url": "仕入れ先URL（Amazon /dp/ASIN形式。不明なら空欄）",
+      "source_platform": "仕入れ先プラットフォーム名",
+      "search_keyword": "検索キーワード",
+      "cost_price": "仕入れ価格（税込）",
+      "release_date": "発売日",
+      "info_url": "情報源URL",
+      "info_source": "情報源の種類",
+      "sns_buzz": "SNS話題度（高・中・低）",
+      "weight_g": "重量（グラム）",
+      "seasonality": "季節性",
+      "jan_code": "",
+      "asin": "ASINコード（わかる場合のみ）",
+      "country_of_origin": "原産国",
+      "notes": "備考"
+    }}
+  ]
+}}
+
+リサーチレポート:
+{report_content[:6000]}"""
+
+        try:
+            claude_resp = claude_client.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=4000,
+                messages=[{"role": "user", "content": json_prompt}]
+            )
+            json_text = claude_resp.content[0].text.strip()
+            # コードブロックがある場合は除去
+            json_text = re.sub(r'^```(?:json)?\s*', '', json_text)
+            json_text = re.sub(r'\s*```$', '', json_text)
+            parsed = json.loads(json_text)
+            products = parsed.get("products", [])
+            if len(products) >= 3:
+                for p in products:
+                    p["research_type"] = category
+                print(f"  {len(products)}件取得成功")
+                return products
+        except (json.JSONDecodeError, Exception) as e:
+            print(f"  Claude JSON化失敗: {e}")
+
         print(f"  JSON取得失敗（{attempt+1}/3）、30秒後リトライ...")
         time.sleep(30)
 
@@ -788,6 +861,9 @@ def run_weekly_research():
             continue
         if is_brand_ng(p):
             print(f"  🚫ブランドNG除外: {p.get('name_ja', '')}")
+            continue
+        if is_foreign_brand(p):
+            print(f"  🌏外国ブランドNG除外: {p.get('name_ja', '')}")
             continue
         if is_stock_ng(p):
             print(f"  🚫在庫リスクNG除外: {p.get('name_ja', '')}")

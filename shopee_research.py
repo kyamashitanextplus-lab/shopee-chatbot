@@ -57,22 +57,36 @@ AIR_NG_KEYWORDS = [
     "ライター", "マッチ", "花火",
     "植物", "種子", "観葉植物",
     "perfume", "fragrance", "nail polish", "paint",
-    # 追加
     "モバイルバッテリー", "mobile battery", "充電器", "ポータブル充電",
     "ハンドソープ", "歯磨き粉", "歯磨き", "toothpaste", "hand soap",
     "洗剤", "柔軟剤", "漂白剤", "トイレットペーパー", "ティッシュ",
-    # サプリ・医薬品
+    # サプリ・医薬品・成分NG（アカウント凍結リスク）
     "サプリ", "サプリメント", "配合錠", "錠剤", "カプセル",
-    "ビタミン", "コラーゲン", "プロテイン", "栄養補助",
+    "ビタミン", "コラーゲン", "プロテイン", "栄養補助", "栄養補給",
     "supplement", "tablet", "capsule",
-    # 食品・飲料
-    "ビール", "ワイン", "酒", "日本酒", "ウイスキー", "チューハイ",
+    "アゼライン酸", "azelaic acid",
+    "ハイドロキノン", "hydroquinone",
+    "ミノキシジル", "minoxidil",
+    "gaba", "ガバ",
+    "hemp", "ヘンプ", "大麻", "cbd", "カンナビジオール",
+    "ガンピール", "gun pill",
+    "ネオスチグミン", "neostigmine",
+    # 食品・飲料（完全NG・アカウント凍結リスク）
+    "食品", "飲料", "健康食品", "機能性食品",
+    "ビール", "ワイン", "酒", "日本酒", "ウイスキー", "チューハイ", "アルコール",
     "クロワッサン", "パン", "ケーキ", "スナック", "お菓子", "チョコ",
-    "グミ", "ガム", "飴", "キャンディ", "ラムネ", "せんべい",
+    "グミ", "ガム", "飴", "キャンディ", "ラムネ", "せんべい", "クッキー",
     "コンビニ", "セブンイレブン", "ローソン", "ファミマ",
+    "フカヒレ", "shark fin",
+    "パチンコ", "pachinko",
+    "インスタントラーメン", "ラーメン", "カレー", "スープ",
+    "果汁グミ", "プリッツ", "グルコサミン",
     # 本・雑誌
     "新書", "文庫", "単行本", "雑誌", "出版", "書籍",
-    "集英社", "小学館", "講談社", "青春出版"
+    "集英社", "小学館", "講談社", "青春出版",
+    # 医薬品・目薬
+    "目薬", "eye drop", "点眼", "アイボン",
+    "ペアアクネ", "acne cream",
 ]
 
 BRAND_NG_KEYWORDS = [
@@ -80,20 +94,63 @@ BRAND_NG_KEYWORDS = [
     "nike", "ナイキ", "adidas", "アディダス", "new balance", "ニューバランス",
     "puma", "プーマ", "under armour", "アンダーアーマー",
     "asics", "アシックス", "mizuno", "ミズノ", "reebok", "リーボック",
-    "converse", "コンバース", "vans", "バンズ",
-    # ファッション
-    "dickies", "ディッキーズ", "carhartt", "カーハート", "supreme", "シュプリーム",
+    "converse", "コンバース", "vans", "バンズ", "salomon", "サロモン",
+    "wilson", "ウィルソン", "gregory", "グレゴリー",
     # ハイブランド
     "louis vuitton", "ルイヴィトン", "gucci", "グッチ", "chanel", "シャネル",
     "hermès", "エルメス", "prada", "プラダ", "dior", "ディオール",
-    "rolex", "ロレックス", "coach", "コーチ",
-    # 外国ブランド（日本商品ではない）
-    "ikea", "イケア", "h&m", "zara", "ザラ", "uniqlo global",
-    "apple", "samsung", "サムスン", "lego", "レゴ",
+    "rolex", "ロレックス", "coach", "コーチ", "kiehl's", "キールズ",
+    "shu uemura", "シュウウエムラ", "sk-ii", "skii",
     # 現地Shopee公式店舗あり（競合になるため除外）
-    "ニトリ", "nitori", "無印良品", "muji", "無印",
-    # 化粧品大手（公式Shopeeストアあり・競合）
+    "ニトリ", "nitori", "無印良品", "muji", "無印", "uniqlo", "ユニクロ",
+    # 化粧品大手（公式ストアあり・競合）
     "資生堂", "shiseido",
+    # 腕時計ブランドNG
+    "casio", "カシオ", "seiko watch", "セイコーウオッチ", "g-shock", "gshock",
+    "garmin", "ガーミン",
+    # 食品・飲料ブランド（出品NG）
+    "suntory", "サントリー", "meiji", "明治", "glico", "グリコ",
+    "nestle", "ネスレ", "nescafe", "ネスカフェ",
+    "house foods", "ハウス食品", "kewpie", "キューピー",
+    "daiso", "ダイソー",
+    # カメラ・電子機器
+    "sony", "ソニー", "panasonic", "パナソニック",
+    "logicool", "ロジクール",
+    # アウトドア・バッグ
+    "the north face", "ノースフェイス", "porter", "ポーター",
+    # 音響機器
+    "jbl", "jabra", "aviot", "tanchujim",
+    # その他NG確定ブランド
+    "zippo", "ジッポ",
+    "mt metatron", "metatron",
+    "ergobaby", "エルゴベビー",
+    "moft", "モフト",
+    "hogotech",
+    "monvera",
+    "cio", "シーアイオー",
+    "kenko", "ケンコー",
+    "porter", "ポーター",
+    "phiten", "ファイテン",
+    "hario", "ハリオ",
+    "arimitsu", "arimino", "アリミノ",
+    "moroccanoil", "モロッカンオイル",
+    "la roche-posay", "ラロッシュポゼ",
+    "johnson", "ジョンソンエンドジョンソン",
+    "burt's bees", "バーツビーズ",
+    "bioderma", "ビオデルマ",
+    "minon", "ミノン",
+    "refa", "リファ",
+    "tsubaki", "ツバキ",
+    "meiko", "メイコー",
+    "quality 1st", "クオリティファースト",
+    "hoyu", "ホーユー",
+    "cielo", "シエロ",
+    "sonny angel", "ソニーエンジェル",
+    "pop mart", "ポップマート",
+    "crocs", "クロックス",
+    "zojirushi", "象印",
+    "soundcore",
+    "polite living",
 ]
 
 # 大型・重量物・輸送困難NG
@@ -127,22 +184,29 @@ FOREIGN_BRAND_KEYWORDS = [
     "peripera", "ペリペラ", "innisfree", "イニスフリー", "cosrx", "laneige", "ラネージュ",
     "etude house", "エチュードハウス", "rom&nd", "romand", "missha", "ミシャ",
     "3ce", "too cool for school", "the face shop", "nature republic",
-    "holika holika", "tony moly", "tonico moly", "clio", "clubclio",
+    "holika holika", "tony moly", "clio", "clubclio",
     "some by mi", "dr.jart", "mediheal", "anua", "beauty of joseon",
+    "i'm meme", "im meme", "perfect diary",
     # 欧米ブランド（家電・雑貨）
     "ninja", "ニンジャ", "dyson", "ダイソン", "philips", "フィリップス",
-    "braun", "ブラウン", "de'longhi", "デロンギ", "nespresso", "ネスプレッソ",
-    "instant pot", "kitchenaid", "cuisinart",
+    "braun", "ブラウン", "de'longhi", "デロンギ",
     # 欧米コスメ
     "l'oreal", "loreal", "ロレアル", "maybelline", "メイベリン", "nyx", "revlon",
     "covergirl", "e.l.f", "elf cosmetics", "wet n wild",
     "charlotte tilbury", "urban decay", "too faced", "benefit",
     "mac cosmetics", "clinique", "estee lauder", "lancome",
-    # 欧米ファッション（BRAND_NGに加え）
-    "zara", "h&m", "gap", "forever 21",
+    "make up for ever", "l'occitane", "ロクシタン",
+    # 欧米ファッション
+    "zara", "h&m", "gap", "forever 21", "dickies", "ディッキーズ",
+    "carhartt", "カーハート", "supreme", "シュプリーム",
     # 中国ブランド
     "xiaomi", "シャオミ", "huawei", "ファーウェイ", "realme", "oppo", "vivo",
     "anker", "アンカー", "baseus", "ベースエウス", "ugreen",
+    # その他外国ブランド
+    "shure", "シュア",
+    "avantree",
+    "ikea", "イケア",
+    "apple", "samsung", "サムスン", "lego", "レゴ",
 ]
 
 WEAPON_NG_KEYWORDS = [
@@ -203,48 +267,42 @@ def research_products(category, count):
 
 【除外カテゴリ（絶対に含めないこと）】
 
+■ 絶対NG（アカウント凍結リスク・出品禁止）
+- 食品・飲料・お菓子・スナック・インスタント食品（完全禁止）
+- 健康食品・サプリメント・栄養補助食品（完全禁止）
+- 成分NG：アゼライン酸・ハイドロキノン・ミノキシジル・GABA・HEMP/ヘンプ/麻・CBD・ネオスチグミン
+- 医薬品・目薬・アクネクリーム・育毛剤
+- フカヒレ（Shark fin）・パチンコ・ガンピール
+- 銃・武器・エアガン・刃物類
+
 ■ 航空便輸送不可のもの
-- 食品・飲料・お菓子・サプリメント・健康食品
-- 生鮮食品・冷凍食品・アルコール飲料
-- 香水・フレグランス・コロン（アルコール含有）
+- 香水・フレグランス（アルコール含有）
 - ネイルポリッシュ・ネイルリムーバー（引火性）
-- 塗料・ペンキ・ラッカー・シンナー（引火性）
-- ガス缶・カセットボンベ・スプレー缶（加圧ガス）
-- ライター・マッチ・花火・爆発物
-- 植物・種子・土（検疫対象）
-- モバイルバッテリー・リチウム電池単体（航空便規制）
-- ハンドソープ・歯磨き粉・洗剤・柔軟剤等の日用品コモディティ（供給過多・薄利）
+- ガス缶・スプレー缶・ライター・花火
+- 植物・種子（検疫対象）
+- モバイルバッテリー・リチウム電池単体
 
-■ 商標・ブランド権侵害リスクのあるもの
-- ハイブランド・ラグジュアリーブランド商品（Louis Vuitton・Gucci・Chanel・Hermès・Prada等）
-- 有名スポーツ・ファッションブランド（Nike・Adidas・New Balance・Puma等）
+■ ブランドNG（知財リスク・競合）
+- ハイブランド（Louis Vuitton・Gucci・Chanel・Hermès・Prada・Dior等）
+- スポーツブランド（Nike・Adidas・New Balance・Puma・Asics・Mizuno等）
+- 資生堂・SK-II・Shu Uemura・Kiehl's（公式ストアあり）
+- Sony・Panasonic・Apple・Samsung（家電メーカー）
+- 外国ブランド全般（韓国・欧米・中国コスメ含む）
 
-■ 在庫切れリスクが高いもの・利益が出ないもの
-- シール・ステッカーセット（小ロット・限定品）
-- めじるしチャーム・ブックマークチャーム・カラビナマスコット等の小物アクセサリー
-- スクイーズ・スクイーシー系おもちゃ
-- 小規模メーカーの限定グッズ・無名ブランド商品
-- 数量限定・期間限定コラボ商品
-- イベント会場限定・店舗限定商品（ネット購入不可のもの）
-- ガシャポン・カプセルトイ（ネットで単品購入できないもの）
-- 架空の型番・存在確認できない商品は絶対に含めないこと
+■ 在庫切れ・利益が出ないもの
+- めじるしチャーム・カラビナマスコット等の小物アクセサリー
+- スクイーズ・カプセルトイ（ネット購入不可）
+- 数量限定・イベント限定商品
+- ドライブレコーダー・カーナビ等のカー用品
 
-■ 海外使用不可の家電
-- 日本国内専用家電（100V専用・海外対応でないもの）
-- ドライヤー・炊飯器・電子レンジ等の大型家電
-※ただしUSB充電機器・海外対応（100-240V）製品はOK
+■ 大型・重量物
+- ベッド・ソファ・大型家電・ベビーカー
 
-【対象カテゴリ】
-- キャラクターグッズ・アニメグッズ
-- コスメ・美容・スキンケア
-- キッチン雑貨・生活用品
-- ファッション・アクセサリー
-- ガジェット・電子機器
-- 文具・ステーショナリー
-- ペット用品
-- スポーツ・アウトドア
-- ベビー・子ども用品
-- インテリア・収納グッズ
+【対象カテゴリ（この4つのみ）】
+1. おもちゃ・ホビー用品（トミカ・ポケモンカード・ガンプラ・ぬいぐるみ・フィギュア等）
+2. ファッション・アクセサリー（日本ブランドのみ：SNIDEL・BEAMS・ネックレス・バッグ等）
+3. 化粧品・美容（日本コスメ：KATE・Canmake・Cezanne・FASIO・コーセー等）
+4. キャラクターグッズ・アニメグッズ（ポケモン・ワンピース・鬼滅・ジブリ等）
 
 【仕入れ先について（重要）】
 - ネット通販で購入できる商品のみ（楽天・Amazon・メルカリ・公式EC等）

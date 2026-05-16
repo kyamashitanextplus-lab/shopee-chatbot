@@ -256,6 +256,32 @@ def is_large_item(p):
     ]).lower()
     return any(kw.lower() in text for kw in LARGE_ITEM_NG_KEYWORDS)
 
+def is_name_specific(product: dict) -> bool:
+    """
+    商品名が十分に具体的かどうかを判定。
+    以下のいずれかを満たせばOK：
+      - ブランド名＋商品名＋型番など3トークン以上
+      - 型番・モデル番号（英数字混在）を含む
+      - search_keywordが具体的（型番含む）
+    """
+    name = product.get("name_ja", "")
+    keyword = product.get("search_keyword", "")
+
+    if not name or len(name) < 8:
+        return False
+
+    # 英数字の型番・モデル番号パターンを含む（例: G-2, HG1/144, MX-R10, No.5）
+    has_model_number = bool(re.search(r'[A-Za-z][A-Za-z0-9\-]{2,}|[A-Za-z0-9]{2,}[-/][A-Za-z0-9]{1,}', name))
+
+    # スペース・「・」・「 」で3つ以上のトークンに分割できる（ブランド名＋商品名＋特徴など）
+    tokens = [t for t in re.split(r'[\s・　]+', name.strip()) if len(t) >= 2]
+    has_multiple_tokens = len(tokens) >= 3
+
+    # search_keywordに型番が含まれる
+    keyword_has_model = bool(re.search(r'[A-Za-z][A-Za-z0-9\-]{2,}', keyword)) if keyword else False
+
+    return has_model_number or has_multiple_tokens or keyword_has_model
+
 
 # ========== Perplexity リサーチ ==========
 
@@ -742,19 +768,9 @@ def resolve_product(product: dict) -> str:
         product["page_info"] = page_info
         return confirmed_url
 
-    # 5. フォールバック（検索URL）
-    name = product.get("name_ja", "")
-    release_date = product.get("release_date", "")
-    year_match = re.search(r'(20\d{2})', release_date)
-    year_suffix = f" {year_match.group(1)}" if year_match else ""
-    search_term = (product.get("search_keyword") or name) + year_suffix
-    keyword = requests.utils.quote(search_term.strip())
-
-    platform = product.get("source_platform", "").lower()
-    if "楽天" in platform or "rakuten" in platform:
-        return f"https://search.rakuten.co.jp/search/mall/{keyword}/"
-    else:
-        return f"https://www.amazon.co.jp/s?k={keyword}"
+    # 5. 商品ページURLが確定できなかった場合はNoneを返す（検索URLは書き込まない）
+    print(f"  ⚠️ 商品ページURL取得不可、スキップ: {product.get('name_ja', '')[:40]}")
+    return None
 
 
 # ========== 仕入れ先URL生成 ==========
@@ -857,7 +873,7 @@ def get_last_index(sheet):
     return 1
 
 
-def write_to_sheet(sheet, row_num, research_date, product, english_content, index):
+def write_to_sheet(sheet, row_num, research_date, product, english_content, index, final_url=""):
     # A〜C列（通し番号・日付・区分）
     ac_data = [
         index,                                          # A: 通し番号
@@ -867,7 +883,7 @@ def write_to_sheet(sheet, row_num, research_date, product, english_content, inde
     # J〜R列（D〜Iはドロップダウン保護のためスキップ）
     jr_data = [
         product.get("name_ja", ""),                     # J: 商品名
-        build_search_url(product),                      # K: 仕入れ先URL
+        final_url or build_search_url(product),         # K: 仕入れ先URL（確定済みURLを優先）
         product.get("cost_price", ""),                  # L: 仕入れ価格
         product.get("release_date", ""),                # M: 発売日
         product.get("info_url", ""),                    # N: 情報源URL
@@ -952,7 +968,8 @@ def run_weekly_research():
     print("スプシに転記中...")
     row_num = next_row
 
-    for i, product in enumerate(all_products, start=start_index):
+    written = 0
+    for i_offset, product in enumerate(all_products):
         product["is_cosmetic"] = is_cosmetic(product)
         product["is_air_ng"]   = is_air_ng(product)
         product["is_brand_ng"] = is_brand_ng(product)
@@ -961,12 +978,25 @@ def run_weekly_research():
         final_url = resolve_product(product)
         time.sleep(1.5)  # 連続アクセス防止
 
+        # 商品ページURLが確定できない場合 → 商品名が具体的なら検索URLで転記
+        if not final_url:
+            if is_name_specific(product):
+                # 商品名にブランド名＋型番などが含まれる → 検索URLで転記
+                final_url = build_search_url(product)
+                print(f"  📋 検索URL使用（商品名が具体的）: {product.get('name_ja', '')[:40]}")
+            else:
+                print(f"  ❌ スキップ（URL・商品名ともに曖昧）: {product.get('name_ja', '')[:40]}")
+                continue
+
+        i = start_index + written
         english_content = generate_english_content(product)
-        write_to_sheet(sheet, row_num, research_date, product, english_content, i)
+        write_to_sheet(sheet, row_num, research_date, product, english_content, i, final_url=final_url)
         row_num += 1
+        written += 1
         time.sleep(1)
 
-    print(f"=== 完了！{len(all_products)}件を転記しました ===")
+    skipped = len(all_products) - written
+    print(f"=== 完了！{written}件を転記しました（商品名・URL両方曖昧でスキップ：{skipped}件） ===")
 
 
 if __name__ == "__main__":

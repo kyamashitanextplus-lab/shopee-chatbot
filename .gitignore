@@ -6,3 +6,22 @@ __pycache__/
 *.pyc
 .claude/
 learned_examples.json
+
+# Discord Bot / 自動化系 (チャットボットリポジトリには含めない)
+discord_bot.py
+sps_invoice_fetch.py
+sps_invoice_parser.py
+staff_invoice_parser.py
+ssm_expense_writer.py
+generic_invoice_parser.py
+morning_briefing.py
+.playwright_ssm_session/
+invoices/
+logs/
+no_access_30days_TH.csv
+no_access_30days_TH.xlsx
+shop_stats_2026_04.json
+requests_log.json
+todo_list.json
+sns_account_setup_guide.md
+start_discord_bot.sh

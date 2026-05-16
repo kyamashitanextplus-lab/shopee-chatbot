@@ -24,9 +24,34 @@ TRANSLATION_MODEL = MODEL  # 後方互換
 
 HISTORY_FILE        = os.path.join(os.path.dirname(__file__), "inquiry_history.json")
 LEARNED_FILE        = os.path.join(os.path.dirname(__file__), "learned_examples.json")
-SIMILAR_THRESHOLD   = 0.35
-TEMPLATE_MIN_COUNT  = 2
-LEARNED_INJECT_MAX  = 3    # プロンプトに注入する学習済み例の最大数
+SIMILAR_THRESHOLD       = 0.35   # プロンプト注入・参考表示の閾値
+AUTO_USE_THRESHOLD      = 0.60   # 自動採用候補として優先表示する閾値
+TEMPLATE_MIN_COUNT      = 2
+LEARNED_INJECT_MAX      = 3      # プロンプトに注入する学習済み例の最大数
+
+# キーワード抽出用 (カテゴリ判定強化)
+KEYWORD_HINTS = {
+    "shipping":  ["配送", "発送", "shipping", "delivery", "送", "ส่ง", "จัดส่ง", "tracking", "พัสดุ", "海運", "貨運"],
+    "refund":    ["返金", "refund", "money back", "คืนเงิน", "退款"],
+    "return":    ["返品", "return", "send back", "ส่งคืน", "退貨"],
+    "stock":     ["在庫", "stock", "available", "มี", "stok", "庫存"],
+    "size":      ["サイズ", "size", "ขนาด", "尺寸", "尺碼"],
+    "color":     ["色", "color", "colour", "สี", "顏色", "warna"],
+    "authentic": ["本物", "正規", "original", "authentic", "ของแท้", "正品", "asli"],
+    "damage":    ["破損", "壊れ", "broken", "damaged", "เสีย", "ชำรุด", "rosak", "壞了"],
+    "wrong":     ["違う", "間違い", "wrong", "incorrect", "ผิด", "salah", "錯誤"],
+    "voucher":   ["クーポン", "voucher", "discount", "วาวเชอร์", "ส่วนลด", "優惠券"],
+}
+
+def extract_keywords(text: str) -> set:
+    text = text.lower()
+    hits = set()
+    for k, words in KEYWORD_HINTS.items():
+        for w in words:
+            if w.lower() in text:
+                hits.add(k)
+                break
+    return hits
 
 
 # ========== 学習済み返信例の管理 ==========
@@ -104,7 +129,24 @@ def similarity(a: str, b: str) -> float:
     ta, tb = tokenize(a), tokenize(b)
     if not ta or not tb:
         return 0.0
-    return len(ta & tb) / min(len(ta), len(tb))
+    base = len(ta & tb) / min(len(ta), len(tb))
+    # キーワードカテゴリ一致でブースト (最大 +0.25)
+    ka, kb = extract_keywords(a), extract_keywords(b)
+    if ka and kb:
+        overlap = len(ka & kb)
+        boost = min(0.25, overlap * 0.10)
+        base = min(1.0, base + boost)
+    return base
+
+def get_top_learned_match(inquiry: str):
+    """最も似た学習済み返信を1件返す (score, example) or None"""
+    examples = load_learned()
+    if not examples:
+        return None
+    scored = [(similarity(inquiry, ex["inquiry"]), ex) for ex in examples]
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top_score, top_ex = scored[0]
+    return (top_score, top_ex) if top_score >= AUTO_USE_THRESHOLD else None
 
 def find_similar(inquiry: str, history: list) -> list:
     """似た過去の問い合わせを返す（類似度の高い順）"""
@@ -139,21 +181,30 @@ def add_to_history(inquiry: str, reply: str, category: str):
 
 def search_product_details(product_name: str, question: str) -> tuple:
     """スペック情報と情報源URLのリストを返す (content, [urls])"""
-    prompt = f"""以下の日本製商品について、お客様の質問に答えるために必要なスペック情報を調べてください。
+    prompt = f"""以下の日本製商品について、お客様の質問に**直接**答えるための情報を調査してください。
 
 商品名: {product_name}
-お客様の質問内容: {question}
+お客様の質問: {question}
 
-以下の情報を簡潔にまとめてください（わかるものだけでOK）：
-- 対応電圧（海外使用可能か）
-- サイズ・寸法
-- 重量
-- 素材・材質
-- 対応言語（日本語専用かどうか）
-- その他、質問に関連するスペック
+# 最重要ルール
+1. **お客様の質問に対する明確な答え (Yes/No/具体的な値) を最初に書く**
+2. 商品単体だけでなく、**専用アプリ・付属品・エコシステム全体**で機能が実現できるかも考慮する
+   - 例: 本体にQR読取カメラがなくても、専用アプリ(スマホ)経由でQR読取できる場合は「QR読取**可能**」と回答
+   - 例: 本体は日本語UIでも、海外で使えれば「海外使用**可能**」
+3. 「本体には機能なし」だけで終わらせない。代替手段・周辺機能も明記
+4. 不確実な情報は「おそらく」と前置き、確実な情報と区別する
 
-情報が見つからない場合はその旨を明記してください。
-箇条書きで簡潔にまとめてください。"""
+# 出力フォーマット
+**【質問への回答】**
+(YesかNoか具体的な値を1〜2行で)
+
+**【補足情報】**
+- (関連スペックを箇条書き)
+
+**【参考の汎用スペック (わかれば)】**
+- 対応電圧 / サイズ / 重量 / 素材 / 対応言語 など
+
+情報が見つからない場合はその旨を明記してください。"""
 
     headers = {
         "Authorization": f"Bearer {PERPLEXITY_API_KEY}",
@@ -245,11 +296,250 @@ def detect_category(text: str) -> str:
 st.set_page_config(
     page_title="Shopee 返信ツール",
     page_icon="🛍️",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="auto",  # モバイルは自動で折りたたみ
 )
 
-st.title("🛍️ Shopee カスタマーサポート 返信生成ツール")
-st.caption("お客様のチャットを貼り付けると、返信例を自動生成します　/ v3.0 履歴テンプレ対応")
+# ========== モバイル対応 CSS ==========
+st.markdown("""
+<style>
+  /* スマホ表示の最適化 */
+  @media (max-width: 768px) {
+    /* メインエリアの余白を縮める */
+    .block-container {
+      padding-top: 1rem !important;
+      padding-bottom: 2rem !important;
+      padding-left: 0.8rem !important;
+      padding-right: 0.8rem !important;
+      max-width: 100% !important;
+    }
+    /* タイトルを小さく */
+    h1 {
+      font-size: 1.5rem !important;
+      margin-bottom: 0.3rem !important;
+    }
+    h2 {
+      font-size: 1.2rem !important;
+    }
+    h3 {
+      font-size: 1.05rem !important;
+    }
+    /* ラジオボタンを縦並びに */
+    .stRadio > div {
+      flex-direction: column !important;
+      gap: 0.3rem !important;
+    }
+    /* コードブロック(返信文)を読みやすく */
+    pre {
+      font-size: 0.95rem !important;
+      white-space: pre-wrap !important;
+      word-break: break-word !important;
+      padding: 0.7rem !important;
+    }
+    code {
+      font-size: 0.95rem !important;
+      white-space: pre-wrap !important;
+    }
+    /* ボタンを大きく押しやすく */
+    .stButton > button {
+      min-height: 48px !important;
+      font-size: 1rem !important;
+      padding: 0.6rem 1rem !important;
+    }
+    /* テキストエリアの最低高さ */
+    .stTextArea textarea {
+      min-height: 100px !important;
+      font-size: 16px !important; /* iOSでズーム抑止 */
+    }
+    .stTextInput input {
+      font-size: 16px !important;
+    }
+    .stSelectbox > div > div {
+      font-size: 16px !important;
+    }
+    /* 段組み崩しはStreamlitが自動でやるが、間隔を詰める */
+    [data-testid="column"] {
+      padding: 0 0.2rem !important;
+    }
+    /* メトリクスを横並びでコンパクトに */
+    [data-testid="stMetricValue"] {
+      font-size: 1.3rem !important;
+    }
+    [data-testid="stMetricLabel"] {
+      font-size: 0.8rem !important;
+    }
+  }
+  /* 全体共通: コードブロックを折り返し */
+  pre, code {
+    white-space: pre-wrap !important;
+    word-break: break-word !important;
+  }
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🛍️ Shopee 文章生成ツール")
+st.caption("v4.2 - 返信 / 発信 / 学習 / モバイル / 認証")
+
+# ========== パスワード認証 ==========
+def _check_password() -> bool:
+    """st.secretsまたは.envのAPP_PASSWORDで簡易認証 (未設定なら認証スキップ)"""
+    expected = ""
+    try:
+        expected = st.secrets.get("APP_PASSWORD", "")
+    except Exception:
+        expected = ""
+    if not expected:
+        expected = os.getenv("APP_PASSWORD", "")
+    if not expected:
+        return True  # パスワード未設定なら認証なし(ローカル開発用)
+
+    if st.session_state.get("auth_ok"):
+        return True
+
+    st.markdown("### 🔐 ログイン")
+    with st.form("auth_form"):
+        pwd = st.text_input("パスワード", type="password")
+        submitted = st.form_submit_button("ログイン", type="primary", use_container_width=True)
+    if submitted:
+        if pwd == expected:
+            st.session_state["auth_ok"] = True
+            st.rerun()
+        else:
+            st.error("❌ パスワードが違います")
+    st.caption("※ パスワードは管理者(山下さん)に確認してください")
+    return False
+
+if not _check_password():
+    st.stop()
+
+# ========== モード切替 ==========
+mode = st.radio(
+    "モード選択",
+    ["📨 返信モード (お客様メッセージへの返信)", "💌 こちら発信モード (こちらから送る文章)"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="mode_select",
+)
+
+# ========== 💌 こちら発信モード ==========
+if mode.startswith("💌"):
+    st.markdown("### 💌 こちら発信モード — お客様へ送る文章を生成")
+    st.caption("意図と必要情報を入れると、丁寧な発信文を生成します")
+
+    # シーン選択
+    SCENE_PRESETS = {
+        "📦 配送遅延のお詫び": "配送が遅延していることへのお詫び。トラッキング確認をお願いし、補償(クーポン等)あれば添える",
+        "🚚 発送完了の連絡": "商品を発送完了したお知らせ。トラッキング番号を伝え、到着予定を案内",
+        "❌ 在庫切れの連絡": "ご注文商品が在庫切れになった旨のお詫び。代替案 or キャンセル(返金)選択を提示",
+        "💰 返金処理完了": "返金処理が完了した連絡。反映に数日かかる旨を伝える",
+        "⭐ レビュー依頼": "商品到着後のレビュー依頼。気に入ってもらえたか確認も含める",
+        "🎁 セール/クーポン案内": "次回使えるクーポンやセール情報の案内",
+        "❓ 商品質問への補足": "前の回答への追加情報・補足説明",
+        "🛠 カスタム注文確認": "サイズ/カラー/数量等の特注確認",
+        "🙏 お詫び一般": "何らかのトラブルへのお詫び(理由カスタム)",
+        "✍️ 自由入力": "上記以外、自分で意図を書く",
+    }
+    scene = st.selectbox("シーン", list(SCENE_PRESETS.keys()), key="scene_select")
+    scene_default_intent = SCENE_PRESETS.get(scene, "")
+
+    col_o1, col_o2 = st.columns([1, 1], gap="large")
+
+    with col_o1:
+        st.subheader("📝 発信内容")
+        intent = st.text_area(
+            "意図 (日本語でOK)",
+            value=scene_default_intent,
+            height=100,
+            help="お客様に何を伝えたいかを日本語で書きます",
+            key="outgoing_intent",
+        )
+        extra_info = st.text_area(
+            "追加情報 (任意)",
+            placeholder="例: トラッキング番号 TH1234567 / +3日遅延予定 / クーポンコード SAVE10",
+            height=80,
+            key="outgoing_extra",
+        )
+
+        target_lang = st.selectbox(
+            "お客様の言語",
+            ["English", "ภาษาไทย (Thai)", "繁體中文 (Traditional Chinese)",
+             "Bahasa Melayu (Malay)", "Português (Portuguese - Brazil)",
+             "Filipino/English", "日本語"],
+            key="outgoing_lang",
+        )
+
+        tone = st.selectbox(
+            "トーン",
+            ["丁寧でフレンドリー (標準)", "とても丁寧 (お詫び・トラブル時)",
+             "カジュアル (常連客向け)", "簡潔・ビジネスライク"],
+            key="outgoing_tone",
+        )
+
+        generate_out_btn = st.button("✨ 発信文を生成", type="primary", use_container_width=True, key="gen_out_btn")
+
+    with col_o2:
+        st.subheader("💬 発信文(コピー用)")
+        st.caption("生成された文をコピペしてお客様に送れます")
+
+        if generate_out_btn and intent.strip():
+            out_prompt = f"""You are a customer support assistant for a Japanese product seller on Shopee.
+Generate a polite OUTGOING message (from shop to customer) in {target_lang} based on the staff's intent below.
+
+=== STAFF'S INTENT (in Japanese) ===
+{intent}
+
+=== EXTRA INFO ===
+{extra_info or '(none)'}
+
+=== TONE ===
+{tone}
+
+=== STRICT RULES ===
+1. LANGUAGE: Output entire message in {target_lang}. Do NOT mix languages.
+   - If Thai: use ค่ะ (female polite) consistently, never mix with ครับ
+   - Thai e-commerce terms: voucher=วาวเชอร์ or คูปองส่วนลด (NEVER บัตรเดบิต/บัตรเครดิต), discount=ส่วนลด, order=คำสั่งซื้อ, refund=คืนเงิน, tracking=เลขพัสดุ
+2. STRUCTURE: Start with greeting (e.g. "Hi!" "Dear customer"), state the purpose clearly, end with polite close
+3. LENGTH: Short and direct. 2-4 sentences for simple notices. Up to 6 sentences for apologies/explanations.
+4. NO BANNED WORDS: Never use "cancel" / "キャンセル". Use "we'll process this" / "we'll handle this" instead
+5. BE PROACTIVE: If apologizing, suggest a concrete next step (compensation/tracking/refund timeline)
+6. NO EMOJIS in the message body (greeting can have 1 if friendly)
+7. NO FILLER: No "Thank you for your patience" stacking, no "I hope this helps" closings
+
+=== OUTPUT FORMAT ===
+First output the message in {target_lang}.
+Then output a line "---" (three dashes).
+Then output the same message translated to Japanese (for staff verification).
+"""
+            with st.spinner("発信文を生成中..."):
+                try:
+                    _client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+                    _msg = _client.messages.create(
+                        model=MODEL,
+                        max_tokens=1000,
+                        messages=[{"role": "user", "content": out_prompt}],
+                    )
+                    raw = _msg.content[0].text.strip()
+
+                    # --- で分割
+                    parts = raw.split("---", 1)
+                    main_text = parts[0].strip()
+                    ja_text = parts[1].strip() if len(parts) > 1 else ""
+
+                    st.code(main_text, language=None)
+                    st.caption("↑ 右上アイコンでコピー")
+                    if ja_text:
+                        with st.expander("📖 日本語訳 (確認用)", expanded=True):
+                            st.write(ja_text)
+                except Exception as e:
+                    st.error(f"生成エラー: {e}")
+        else:
+            st.info("← 左のフォームに入力して「発信文を生成」を押してください")
+
+    st.divider()
+    st.caption("💡 ヒント: 「自由入力」を選ぶと細かい意図を書けます。複雑な依頼でも対応できます")
+    st.stop()
+
+# ========== 以下、📨 返信モード (既存) ==========
 
 # ========== サイドバー ==========
 with st.sidebar:
@@ -262,6 +552,26 @@ with st.sidebar:
     📦 到着目安：注文から**7〜10日**
     🔍 商品詳細 → **Perplexityが自動調査**
     """)
+
+    # ===== 学習統計 =====
+    st.divider()
+    _learned_count = len(load_learned())
+    _history_count = len(load_history())
+    st.header("🎓 学習状況")
+    col_s1, col_s2 = st.columns(2)
+    with col_s1:
+        st.metric("承認済み返信", _learned_count)
+    with col_s2:
+        st.metric("総質問履歴", _history_count)
+    if _learned_count > 0:
+        # カテゴリ別件数
+        from collections import Counter
+        _cat_counts = Counter()
+        for ex in load_learned():
+            _cat_counts[ex.get("category", "その他")] += 1
+        with st.expander("📊 カテゴリ別", expanded=False):
+            for cat, n in _cat_counts.most_common():
+                st.write(f"・{cat}: {n}件")
 
     # ===== よく来る質問テンプレ（履歴から自動生成）=====
     st.divider()
@@ -368,7 +678,25 @@ with col1:
             with st.expander("日本語訳", expanded=True):
                 st.markdown(st.session_state[cached_key])
 
-    generate_btn = st.button("✨ 返信例を生成", type="primary", use_container_width=True)
+    # ===== 自動採用候補: 高類似度の学習済み返信があれば最初に表示 =====
+    if inquiry_text and inquiry_text.strip():
+        _match = get_top_learned_match(inquiry_text.strip())
+        if _match:
+            _score, _ex = _match
+            with st.container(border=True):
+                st.success(f"🎯 過去の承認済み返信が見つかりました (類似度 {_score*100:.0f}%)")
+                st.caption(f"類似質問: 「{_ex['inquiry'][:60]}{'...' if len(_ex['inquiry']) > 60 else ''}」")
+                st.code(_ex["reply"], language=None)
+                col_use, _ = st.columns([1, 1])
+                with col_use:
+                    if st.button("✅ この返信を採用 (Claude呼ばない)", use_container_width=True, type="primary"):
+                        st.session_state["edited_reply"] = _ex["reply"]
+                        st.session_state["show_reply"] = _ex["reply"]
+                        st.session_state["show_translation"] = _ex.get("reply_ja", "")
+                        st.session_state["current_inquiry"] = inquiry_text
+                        st.rerun()
+
+    generate_btn = st.button("✨ 返信例を生成 (新規作成)", type="primary", use_container_width=True)
 
 def show_reply_and_translation(reply, translation, inquiry_text, client):
     """返信例と編集可能な日本語訳を表示する共通関数"""
@@ -540,6 +868,9 @@ Shop reply: "Are you connecting it to a PC?"
    NEVER ask for order number — the shop can already see it in the chat.
 
 6. PRODUCT SPECS: If product specs were researched (see above), use that info to answer directly and specifically.
+   - The PRODUCT SPECS section starts with 【質問への回答】 — use that direct Yes/No/value answer first.
+   - Consider the WHOLE product ecosystem: companion app, accessories, included parts. If a feature works via the official app or accessory, the answer is YES (don't reply "the device itself doesn't have this" if the app provides it).
+   - Example: If the customer asks "Does it read QR codes?" and the device has no camera but the dedicated app reads QR codes → reply "Yes, you can scan QR codes using the official app."
    If no specs are provided but the customer asks about product details → give a general helpful answer based on the product type.
 
 7. DAMAGE / WRONG ITEM: Brief empathy, then guide through Shopee's return process.

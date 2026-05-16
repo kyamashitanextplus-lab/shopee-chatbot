@@ -22,6 +22,43 @@ PERPLEXITY_API_KEY = st.secrets.get("PERPLEXITY_API_KEY", os.getenv("PERPLEXITY_
 MODEL = "claude-sonnet-4-5"
 TRANSLATION_MODEL = MODEL  # 後方互換
 
+
+# ========== 共通: 大きく目立つコピーボタン ==========
+def display_with_copy(text: str, key_suffix: str = ""):
+    """テキストを表示 + 「📋 コピー」ボタン (JSでクリップボードへ)"""
+    import streamlit.components.v1 as components
+    import html as _html_mod
+    safe_text = _html_mod.escape(text).replace("`", "\\`")
+    # Streamlitのstd codeも残す (バックアップ用)
+    st.code(text, language=None)
+    # 派手なコピーボタン (Webタッチに最適化)
+    html_block = f"""
+    <button id="copy_btn_{key_suffix}"
+        onclick="(async()=>{{
+            try {{
+                await navigator.clipboard.writeText(`{safe_text}`);
+                const b=document.getElementById('copy_btn_{key_suffix}');
+                b.innerHTML='✅ コピーしました!';
+                b.style.background='#22c55e';
+                setTimeout(()=>{{b.innerHTML='📋 コピーする';b.style.background='#2563eb';}},2000);
+            }} catch(e) {{
+                const t=document.createElement('textarea');t.value=`{safe_text}`;
+                document.body.appendChild(t);t.select();
+                document.execCommand('copy');document.body.removeChild(t);
+                const b=document.getElementById('copy_btn_{key_suffix}');
+                b.innerHTML='✅ コピーしました!';
+                b.style.background='#22c55e';
+                setTimeout(()=>{{b.innerHTML='📋 コピーする';b.style.background='#2563eb';}},2000);
+            }}
+        }})()"
+        style="width:100%;padding:14px;background:#2563eb;color:white;
+               border:none;border-radius:8px;font-size:16px;font-weight:bold;
+               cursor:pointer;margin-top:4px;">
+        📋 コピーする
+    </button>
+    """
+    components.html(html_block, height=60)
+
 HISTORY_FILE        = os.path.join(os.path.dirname(__file__), "inquiry_history.json")
 LEARNED_FILE        = os.path.join(os.path.dirname(__file__), "learned_examples.json")
 SIMILAR_THRESHOLD       = 0.35   # プロンプト注入・参考表示の閾値
@@ -462,9 +499,11 @@ if mode.startswith("💌"):
 
         target_lang = st.selectbox(
             "お客様の言語",
-            ["English", "ภาษาไทย (Thai)", "繁體中文 (Traditional Chinese)",
-             "Bahasa Melayu (Malay)", "Português (Portuguese - Brazil)",
-             "Filipino/English", "日本語"],
+            ["English",
+             "ภาษาไทย (Thai)",
+             "繁體中文 (台湾)",
+             "Português (ブラジル)",
+             "Tiếng Việt (ベトナム語)"],
             key="outgoing_lang",
         )
 
@@ -525,13 +564,61 @@ Then output the same message translated to Japanese (for staff verification).
                     main_text = parts[0].strip()
                     ja_text = parts[1].strip() if len(parts) > 1 else ""
 
-                    st.code(main_text, language=None)
-                    st.caption("↑ 右上アイコンでコピー")
-                    if ja_text:
-                        with st.expander("📖 日本語訳 (確認用)", expanded=True):
-                            st.write(ja_text)
+                    # セッションに保存 (編集→再生成のため)
+                    st.session_state["outgoing_main"] = main_text
+                    st.session_state["outgoing_ja"] = ja_text
+                    st.session_state["outgoing_lang_used"] = target_lang
                 except Exception as e:
                     st.error(f"生成エラー: {e}")
+
+        # 生成済み or 再生成済みの結果を表示
+        if "outgoing_main" in st.session_state:
+            current_main = st.session_state.get("outgoing_edited_main", st.session_state["outgoing_main"])
+
+            st.markdown("**📤 お客様への文 (この内容をそのままコピペ)**")
+            display_with_copy(current_main, key_suffix="outgoing")
+
+            # 編集可能な日本語訳
+            st.markdown("---")
+            st.markdown("**📖 日本語訳 (編集してから「再生成」を押すと反映)**")
+            edited_ja = st.text_area(
+                "日本語訳を編集",
+                value=st.session_state.get("outgoing_edited_ja", st.session_state.get("outgoing_ja", "")),
+                height=150,
+                key="outgoing_ja_edit",
+                label_visibility="collapsed",
+            )
+
+            if st.button("✏️ 編集後の日本語訳でお客様向け文を再生成", use_container_width=True, key="regen_outgoing"):
+                used_lang = st.session_state.get("outgoing_lang_used", target_lang)
+                regen_prompt = f"""Translate the following Japanese customer-facing message into {used_lang}.
+Keep tone polite and natural. Apply Shopee customer support conventions.
+- If Thai: use ค่ะ consistently, e-commerce terms (voucher=วาวเชอร์, refund=คืนเงิน, tracking=เลขพัสดุ).
+- No emojis in body (greeting max 1).
+- No "cancel/キャンセル".
+
+Japanese to translate:
+{edited_ja}
+
+Output ONLY the translated message in {used_lang}, no explanation."""
+                with st.spinner("再生成中..."):
+                    try:
+                        _client2 = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
+                        _r = _client2.messages.create(
+                            model=MODEL,
+                            max_tokens=800,
+                            messages=[{"role": "user", "content": regen_prompt}],
+                        )
+                        st.session_state["outgoing_edited_main"] = _r.content[0].text.strip()
+                        st.session_state["outgoing_edited_ja"] = edited_ja
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"再生成エラー: {e}")
+
+            if st.button("🔄 結果をクリア", use_container_width=True, key="clear_outgoing"):
+                for k in ["outgoing_main", "outgoing_ja", "outgoing_edited_main", "outgoing_edited_ja", "outgoing_lang_used"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
         else:
             st.info("← 左のフォームに入力して「発信文を生成」を押してください")
 
@@ -701,8 +788,7 @@ with col1:
 def show_reply_and_translation(reply, translation, inquiry_text, client):
     """返信例と編集可能な日本語訳を表示する共通関数"""
     display_reply = st.session_state.get("edited_reply", reply)
-    st.code(display_reply, language=None)
-    st.caption("↑ 右上のアイコンでコピーできます")
+    display_with_copy(display_reply, key_suffix="reply")
 
     # 採用ボタン（学習）
     col_adopt, col_clear = st.columns([3, 1])
@@ -754,8 +840,7 @@ with col2:
     # テンプレから選んだ場合は即表示
     if "template_reply" in st.session_state and not generate_btn:
         st.info("過去の返信テンプレを表示しています")
-        st.code(st.session_state["template_reply"], language=None)
-        st.caption("↑ 右上のアイコンでコピーできます")
+        display_with_copy(st.session_state["template_reply"], key_suffix="template")
         if st.button("クリア", key="clear_tpl"):
             del st.session_state["template_reply"]
             del st.session_state["template_text"]

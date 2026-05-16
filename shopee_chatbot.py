@@ -452,11 +452,129 @@ if not _check_password():
 # ========== モード切替 ==========
 mode = st.radio(
     "モード選択",
-    ["📨 返信モード (お客様メッセージへの返信)", "💌 こちら発信モード (こちらから送る文章)"],
+    [
+        "📨 返信モード (お客様メッセージへの返信)",
+        "💌 こちら発信モード (こちらから送る文章)",
+        "🎨 画像生成モード (ロゴ・SNSアイコン作成)",
+    ],
     horizontal=True,
     label_visibility="collapsed",
     key="mode_select",
 )
+
+# ========== 🎨 画像生成モード ==========
+if mode.startswith("🎨"):
+    st.markdown("### 🎨 画像生成モード — GPT Image 2.0でロゴ・アイコン作成")
+    _openai_key = ""
+    try:
+        _openai_key = st.secrets.get("OPENAI_API_KEY", "")
+    except Exception:
+        pass
+    if not _openai_key:
+        _openai_key = os.getenv("OPENAI_API_KEY", "")
+    if not _openai_key:
+        st.error("⚠️ OPENAI_API_KEY が設定されていません。.env or Streamlit Secrets に設定してください")
+        st.stop()
+
+    st.caption("Shopee商品アイコン・SNSプロフィール画像・バナー等を生成できます")
+
+    # シーンプリセット
+    IMAGE_PRESETS = {
+        "🏷️ Shikisai Japan ロゴ (現フレーム風)": (
+            "Bold modern circular logo for 'Shikisai Japan' Japanese e-commerce brand. "
+            "Color palette: RED, BLACK, WHITE only (NO pink, NO pastel). "
+            "Center: large bold black sumi-e calligraphy kanji '和' (harmony). "
+            "Around the kanji: 'SHIKISAI JAPAN' text in bold sans-serif. "
+            "Red circular border or red accent (Japanese flag style). "
+            "Black ink brush stroke accents at corners. "
+            "Pure white inner background. "
+            "Style: traditional Japanese craft brand seal, hanko stamp aesthetic, premium artisan mark. "
+            "Square 1:1 ratio, optimized for circular crop on social media profile."
+        ),
+        "📱 SNSプロフィールアイコン (シンプル)": (
+            "Minimalist clean profile icon for Shikisai Japan brand. "
+            "Single bold kanji '色彩' in black calligraphy on white. "
+            "Small red accent dot like Japanese flag. "
+            "Square format. Modern, recognizable at small sizes."
+        ),
+        "🎌 Facebook カバー画像": (
+            "Facebook cover image banner for Shikisai Japan, a Japanese e-commerce brand shipping hobby/fashion/lifestyle goods worldwide via Shopee. "
+            "Wide banner format. Red/black/white palette. "
+            "Left side: brand name 'Shikisai Japan' with kanji '和'. "
+            "Right side: subtle product silhouette icons (camera, anime figure, fashion item). "
+            "Japanese sumi ink brush strokes accent."
+        ),
+        "🛍️ Shopee商品トップ画像枠": (
+            "Square product photo frame template for Shopee listing. "
+            "White center area for product placement. "
+            "Red border (Japanese flag red). "
+            "Black sumi ink brush strokes at top and bottom corners. "
+            "Top center: red banner with white text 'AUTHENTIC FROM JAPAN'. "
+            "Clean, premium look."
+        ),
+        "✍️ 自由入力 (カスタムプロンプト)": "",
+    }
+
+    preset = st.selectbox("プリセット選択", list(IMAGE_PRESETS.keys()), key="image_preset")
+    default_prompt = IMAGE_PRESETS[preset]
+
+    prompt = st.text_area(
+        "プロンプト (日本語/英語OK)",
+        value=default_prompt,
+        height=200,
+        help="どんな画像を作りたいか詳しく書くほど精度上がります。英語の方が精度高い傾向あり",
+        key="image_prompt",
+    )
+
+    col_set1, col_set2 = st.columns(2)
+    with col_set1:
+        size = st.selectbox("サイズ", ["1024x1024 (正方形)", "1024x1536 (縦長)", "1536x1024 (横長)"], key="image_size")
+    with col_set2:
+        quality = st.selectbox("画質 (高いほどコスト高)", ["medium (標準)", "high (高品質)", "low (テスト用)"], key="image_quality")
+
+    if st.button("🎨 画像を生成", type="primary", use_container_width=True, key="gen_image_btn"):
+        if not prompt.strip():
+            st.warning("プロンプトを入力してください")
+        else:
+            try:
+                from openai import OpenAI
+                import base64
+                _client = OpenAI(api_key=_openai_key)
+                size_val = size.split(" ")[0]
+                quality_val = quality.split(" ")[0]
+                with st.spinner("GPT Image 2.0 で生成中... (10〜30秒)"):
+                    _resp = _client.images.generate(
+                        model="gpt-image-1",
+                        prompt=prompt,
+                        size=size_val,
+                        quality=quality_val,
+                        n=1,
+                    )
+                    img_b64 = _resp.data[0].b64_json
+                    img_bytes = base64.b64decode(img_b64)
+                    st.session_state["generated_image"] = img_bytes
+                    st.session_state["generated_prompt"] = prompt
+                    st.success("✅ 生成完了!")
+            except Exception as e:
+                st.error(f"⚠️ 生成エラー: {e}")
+
+    # 生成済み画像表示
+    if "generated_image" in st.session_state:
+        st.image(st.session_state["generated_image"], caption="生成された画像", use_container_width=True)
+        st.download_button(
+            "💾 PNG ダウンロード",
+            data=st.session_state["generated_image"],
+            file_name=f"shikisai_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png",
+            mime="image/png",
+            use_container_width=True,
+            type="primary",
+        )
+        with st.expander("📝 使ったプロンプト"):
+            st.code(st.session_state.get("generated_prompt", ""))
+
+    st.divider()
+    st.caption("💡 気に入らんかったら、プロンプトを調整して再生成 / 別プリセット試す")
+    st.stop()
 
 # ========== 💌 こちら発信モード ==========
 if mode.startswith("💌"):

@@ -415,7 +415,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🛍️ Shopee 文章生成ツール")
-st.caption("v4.2 - 返信 / 発信 / 学習 / モバイル / 認証")
+st.caption("v4.5 - 返信 / 発信 / 画像生成 / 自動学習")
 
 # ========== パスワード認証 ==========
 def _check_password() -> bool:
@@ -874,7 +874,19 @@ with col1:
                     tl = _c.messages.create(
                         model=TRANSLATION_MODEL,
                         max_tokens=600,
-                        messages=[{"role": "user", "content": f"Translate the following Shopee customer chat into natural Japanese. Use proper e-commerce terms: 'original'→'正規品', 'cancel'→'注文キャンセル', 'tracking'→'追跡番号', 'voucher'→'バウチャー', 'coupon'→'クーポン', 'discount'→'割引', 'checkout'→'購入手続き', 'order'→'注文', 'refund'→'返金', 'return'→'返品'. Keep speaker labels if present. Output ONLY the translation:\n\n{inquiry_text}"}]
+                        messages=[{"role": "user", "content": f"""Translate the following Shopee customer chat message into natural, casual Japanese (日常的な自然な日本語).
+
+Rules:
+- DO NOT translate literally word-by-word. Focus on the natural meaning.
+- 「已經有現貨了嗎」→「在庫はありますか？」(NOT 「既に在庫はありますか」)
+- 「有現貨嗎」「มีสินค้าไหม」「is it available」→「在庫はありますか？」
+- 「是正規品嗎」「is this original」「ของแท้ไหม」→「正規品ですか？」
+- 「tracking」→「追跡番号」, 「voucher」→「バウチャー」, 「refund」→「返金」, 「return」→「返品」, 「cancel」→「キャンセル」, 「order」→「注文」
+- Keep speaker labels (Customer:/Shop:) if present.
+- Output ONLY the Japanese translation, no explanation.
+
+Text to translate:
+{inquiry_text}"""}]
                     )
                     st.session_state[cached_key] = tl.content[0].text
                 except Exception:
@@ -883,23 +895,12 @@ with col1:
             with st.expander("日本語訳", expanded=True):
                 st.markdown(st.session_state[cached_key])
 
-    # ===== 自動採用候補: 高類似度の学習済み返信があれば最初に表示 =====
+    # ===== 類似スタイル通知: 高類似度の学習済み返信があれば参考としてプロンプトに注入 =====
     if inquiry_text and inquiry_text.strip():
         _match = get_top_learned_match(inquiry_text.strip())
         if _match:
             _score, _ex = _match
-            with st.container(border=True):
-                st.success(f"🎯 過去の承認済み返信が見つかりました (類似度 {_score*100:.0f}%)")
-                st.caption(f"類似質問: 「{_ex['inquiry'][:60]}{'...' if len(_ex['inquiry']) > 60 else ''}」")
-                st.code(_ex["reply"], language=None)
-                col_use, _ = st.columns([1, 1])
-                with col_use:
-                    if st.button("✅ この返信を採用 (Claude呼ばない)", use_container_width=True, type="primary"):
-                        st.session_state["edited_reply"] = _ex["reply"]
-                        st.session_state["show_reply"] = _ex["reply"]
-                        st.session_state["show_translation"] = _ex.get("reply_ja", "")
-                        st.session_state["current_inquiry"] = inquiry_text
-                        st.rerun()
+            st.info(f"💡 類似スタイル({_score*100:.0f}%)を参考に返信を生成します")
 
     generate_btn = st.button("✨ 返信例を生成 (新規作成)", type="primary", use_container_width=True)
 
@@ -907,18 +908,6 @@ def show_reply_and_translation(reply, translation, inquiry_text, client):
     """返信例と編集可能な日本語訳を表示する共通関数"""
     display_reply = st.session_state.get("edited_reply", reply)
     display_with_copy(display_reply, key_suffix="reply")
-
-    # 採用ボタン（学習）
-    col_adopt, col_clear = st.columns([3, 1])
-    with col_adopt:
-        if st.button("✅ この返信を採用して学習", use_container_width=True, type="primary"):
-            # 編集済みの日本語訳があればそれも保存
-            current_ja = st.session_state.get("ja_edit_area", translation)
-            add_learned_example(inquiry_text, display_reply, reply_ja=current_ja)
-            st.success("✅ 学習しました！次回から似た質問に自動適用されます")
-    with col_clear:
-        if st.button("❌ スキップ", use_container_width=True):
-            pass  # 何もしない
 
     with st.expander("日本語訳（編集すると返信例に反映）", expanded=True):
         edited_ja = st.text_area(
@@ -1013,14 +1002,18 @@ with col2:
 {product_details}
 ===
 """
-        # ===== 学習済み返信例をプロンプトに注入 =====
+        # ===== 学習済み返信例をプロンプトに注入 (スタイル参考のみ) =====
         learned = get_learned_examples(inquiry_text)
         learned_section = ""
         if learned:
-            learned_section = "\n=== APPROVED REPLIES (highest priority — owner approved these exact replies) ===\n"
+            learned_section = "\n=== PAST REPLY STYLE EXAMPLES (for tone/approach reference ONLY) ===\n"
             for i, ex in enumerate(learned, 1):
-                learned_section += f'\nApproved Example {i}:\nCustomer: "{ex["inquiry"]}"\nShop reply: "{ex["reply"]}"\n'
-            learned_section += "===\n"
+                learned_section += f'\nStyle Example {i}:\nCustomer asked: "{ex["inquiry"]}"\nApproved reply style: "{ex["reply"]}"\n'
+            learned_section += (
+                "\nCRITICAL: These examples show the preferred TONE and COMMUNICATION STYLE only.\n"
+                "NEVER copy product names, brand names, or specific details from examples unless they exactly match the current inquiry.\n"
+                "Always generate a FRESH reply adapted to the actual question above.\n===\n"
+            )
 
         prompt = f"""You are a customer support assistant for a Japanese product seller on Shopee. Your job is to write replies that sound exactly like the shop owner's real replies shown below.
 {spec_section}{learned_section}
@@ -1148,8 +1141,11 @@ Write ONLY the shop's reply. No labels, no explanation."""
                 # カテゴリバッジ
                 st.info(f"問い合わせ種別：{category}")
 
-                # ===== 履歴に保存 =====
+                # ===== 履歴に保存 & 自動学習 =====
                 add_to_history(inquiry_text, reply, category)
+                # 生成された返信を自動学習（ボタン不要）
+                _trans_for_learn = st.session_state.get(f"translation_{hash(reply)}", "")
+                add_learned_example(inquiry_text, reply, reply_ja=_trans_for_learn)
 
             except Exception as e:
                 st.error(f"エラーが発生しました: {e}")

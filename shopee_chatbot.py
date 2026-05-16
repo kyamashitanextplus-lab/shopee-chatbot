@@ -66,6 +66,42 @@ AUTO_USE_THRESHOLD      = 0.60   # 自動採用候補として優先表示する
 TEMPLATE_MIN_COUNT      = 2
 LEARNED_INJECT_MAX      = 3      # プロンプトに注入する学習済み例の最大数
 
+# ========== Google Sheets 接続 ==========
+
+@st.cache_resource
+def _get_gsheet_ws():
+    """Google Sheetsワークシートを返す。未設定ならNone (ローカルJSONにフォールバック)"""
+    try:
+        import gspread
+        from google.oauth2.service_account import Credentials
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        try:
+            creds_dict = dict(st.secrets.get("gcp_service_account", {}))
+        except Exception:
+            creds_dict = {}
+        if not creds_dict:
+            return None
+        spreadsheet_id = ""
+        try:
+            spreadsheet_id = st.secrets.get("SPREADSHEET_ID", "")
+        except Exception:
+            pass
+        if not spreadsheet_id:
+            return None
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        gc = gspread.authorize(creds)
+        ws = gc.open_by_key(spreadsheet_id).sheet1
+        # ヘッダー行がなければ追加
+        existing = ws.row_values(1)
+        if not existing:
+            ws.update(values=[["inquiry", "reply", "reply_ja", "date", "updated"]], range_name="A1")
+        return ws
+    except Exception:
+        return None
+
 # キーワード抽出用 (カテゴリ判定強化)
 KEYWORD_HINTS = {
     "shipping":  ["配送", "発送", "shipping", "delivery", "送", "ส่ง", "จัดส่ง", "tracking", "พัสดุ", "海運", "貨運"],
@@ -94,15 +130,69 @@ def extract_keywords(text: str) -> set:
 # ========== 学習済み返信例の管理 ==========
 
 def load_learned() -> list:
+    """学習済み返信例を読み込む (Google Sheets優先、fallback: ローカルJSON)"""
+    # セッションキャッシュがあれば使う (同セッション内の高速化)
+    if "learned_cache" in st.session_state:
+        return st.session_state["learned_cache"]
+
+    ws = _get_gsheet_ws()
+    if ws is not None:
+        try:
+            records = ws.get_all_records()
+            examples = []
+            for r in records:
+                if r.get("inquiry"):
+                    examples.append({
+                        "inquiry":  str(r.get("inquiry",  "")),
+                        "reply":    str(r.get("reply",    "")),
+                        "reply_ja": str(r.get("reply_ja", "")),
+                        "date":     str(r.get("date",     "")),
+                        "updated":  str(r.get("updated",  "")),
+                    })
+            st.session_state["learned_cache"] = examples
+            return examples
+        except Exception:
+            pass  # Sheetsエラー時はローカルに fallback
+
+    # Fallback: ローカルJSON
     if not os.path.exists(LEARNED_FILE):
+        st.session_state["learned_cache"] = []
         return []
     try:
         with open(LEARNED_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+            st.session_state["learned_cache"] = data
+            return data
     except Exception:
+        st.session_state["learned_cache"] = []
         return []
 
 def save_learned(examples: list):
+    """学習済み返信例を保存 (Google Sheets優先、fallback: ローカルJSON)"""
+    # キャッシュを最新にする
+    st.session_state["learned_cache"] = examples
+
+    ws = _get_gsheet_ws()
+    if ws is not None:
+        try:
+            headers = ["inquiry", "reply", "reply_ja", "date", "updated"]
+            rows = [headers] + [
+                [
+                    ex.get("inquiry",  ""),
+                    ex.get("reply",    ""),
+                    ex.get("reply_ja", ""),
+                    ex.get("date",     ""),
+                    ex.get("updated",  ""),
+                ]
+                for ex in examples
+            ]
+            ws.clear()
+            ws.update(values=rows, range_name="A1")
+            return  # Sheets保存成功
+        except Exception:
+            pass  # Fallback to local
+
+    # Fallback: ローカルJSON
     with open(LEARNED_FILE, "w", encoding="utf-8") as f:
         json.dump(examples, f, ensure_ascii=False, indent=2)
 
@@ -760,16 +850,28 @@ with st.sidebar:
 
     # ===== 学習統計 =====
     st.divider()
+    # Google Sheets接続状況
+    _ws = _get_gsheet_ws()
+    if _ws is not None:
+        st.success("☁️ Google Sheets 接続中", icon="✅")
+    else:
+        st.warning("💾 ローカル保存モード", icon="⚠️")
+
     _learned_count = len(load_learned())
     _history_count = len(load_history())
     st.header("🎓 学習状況")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
-        st.metric("承認済み返信", _learned_count)
+        st.metric("学習済み返信", _learned_count)
     with col_s2:
         st.metric("総質問履歴", _history_count)
+
+    # データ更新ボタン (別タブのスタッフが追加した学習データを反映)
+    if st.button("🔄 学習データを更新", use_container_width=True, help="他のスタッフが追加したデータをリロード"):
+        st.session_state.pop("learned_cache", None)
+        st.rerun()
+
     if _learned_count > 0:
-        # カテゴリ別件数
         from collections import Counter
         _cat_counts = Counter()
         for ex in load_learned():
